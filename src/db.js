@@ -37,6 +37,7 @@ export function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS match_players (
             match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
             player_uuid TEXT NOT NULL REFERENCES players(uuid) ON DELETE CASCADE,
+            time INTEGER,
             PRIMARY KEY (match_id, player_uuid)
         );
 
@@ -50,6 +51,16 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS matches_date_idx ON matches (match_date DESC);
         CREATE INDEX IF NOT EXISTS match_players_player_idx ON match_players (player_uuid);
     `);
+
+    migrateColumn("match_players", "time", "INTEGER");
+    migrateColumn("matches", "completions_fetched", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function migrateColumn(table, column, definition) {
+    const columns = database.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some(existing => existing.name === column)) {
+        database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
 }
 
 initializeDatabase();
@@ -88,6 +99,15 @@ const insertMatchPlayer = database.prepare(`
     INSERT INTO match_players (match_id, player_uuid)
     VALUES (?, ?)
     ON CONFLICT DO NOTHING
+`);
+const upsertMatchPlayerTime = database.prepare(`
+    INSERT INTO match_players (match_id, player_uuid, time)
+    VALUES (?, ?, ?)
+    ON CONFLICT (match_id, player_uuid) DO UPDATE SET
+        time = excluded.time
+`);
+const markCompletionsFetched = database.prepare(`
+    UPDATE matches SET completions_fetched = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?
 `);
 const saveSuccess = database.prepare(`
     INSERT INTO poller_state (username, last_success_at, last_error)
@@ -133,6 +153,27 @@ export function saveMatches(username, matches) {
     saveMatchesTransaction(username, matches);
 }
 
+export function matchIdsNeedingCompletions(matchIds) {
+    if (!matchIds.length) return [];
+    const placeholders = matchIds.map(() => "?").join(",");
+    return database.prepare(`
+        SELECT id FROM matches WHERE completions_fetched = 0 AND id IN (${placeholders})
+    `).all(...matchIds).map(row => row.id);
+}
+
+const saveCompletionsTransaction = database.transaction((matchId, completions) => {
+    for (const completion of completions) {
+        if (!completion.uuid || !Number.isFinite(completion.time)) continue;
+        insertUnknownPlayer.run(completion.uuid, completion.uuid);
+        upsertMatchPlayerTime.run(matchId, completion.uuid, completion.time);
+    }
+    markCompletionsFetched.run(matchId);
+});
+
+export function saveMatchCompletions(matchId, completions) {
+    saveCompletionsTransaction(matchId, Array.isArray(completions) ? completions : []);
+}
+
 export function savePollError(username, error) {
     database.prepare(`
         INSERT INTO poller_state (username, last_error)
@@ -155,7 +196,7 @@ export function getPlayersWithRuns() {
                 p.nickname,
                 p.country,
                 m.id,
-                CASE WHEN m.result_uuid = p.uuid THEN m.result_time ELSE NULL END AS time,
+                COALESCE(mp.time, CASE WHEN m.result_uuid = p.uuid THEN m.result_time ELSE NULL END) AS time,
                 m.match_date,
                 m.seed_type,
                 m.bastion_type,
@@ -179,13 +220,12 @@ export function getLeaderboard() {
                 p.uuid,
                 p.nickname,
                 p.country,
-                m.result_time,
+                mp.time,
                 ROW_NUMBER() OVER (PARTITION BY p.uuid ORDER BY m.match_date DESC) AS run_number
             FROM players p
             JOIN match_players mp ON mp.player_uuid = p.uuid
             JOIN matches m ON m.id = mp.match_id
-            WHERE m.result_uuid = p.uuid
-              AND m.result_time IS NOT NULL
+            WHERE mp.time IS NOT NULL
               AND m.forfeited = 0
         )
         SELECT
@@ -193,8 +233,8 @@ export function getLeaderboard() {
             nickname,
             country,
             COUNT(*) AS runs,
-            CAST(ROUND(AVG(result_time)) AS INTEGER) AS average_time,
-            MAX(result_time) AS best_time
+            CAST(ROUND(AVG(time)) AS INTEGER) AS average_time,
+            MAX(time) AS best_time
         FROM eligible
         WHERE run_number <= 20
         GROUP BY uuid, nickname, country
@@ -206,7 +246,7 @@ export function getRecentRuns(limit) {
     return database.prepare(`
         SELECT
             m.id,
-            m.result_time AS time,
+            mp.time,
             m.match_date AS date,
             m.seed_type,
             m.bastion_type,
@@ -216,7 +256,8 @@ export function getRecentRuns(limit) {
             p.nickname,
             p.country
         FROM matches m
-        LEFT JOIN players p ON p.uuid = m.result_uuid
+        JOIN match_players mp ON mp.match_id = m.id
+        JOIN players p ON p.uuid = mp.player_uuid
         ORDER BY m.match_date DESC
         LIMIT ?
     `).all(limit);
