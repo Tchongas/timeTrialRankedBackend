@@ -129,6 +129,37 @@ Test remotely by replacing the address with the VPS IP:
 http://VPS_IP:3000/health
 ```
 
+## Updating the server
+
+Everyday update flow — pull the latest code and redeploy:
+
+```bash
+cd ~/timeTrialRankedBackend
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+sudo bash install.sh
+```
+
+The installer is safe to re-run: it preserves `/opt/time-trial-ranked/.env` and the `data/` database, reinstalls dependencies only when needed, and restarts the service.
+
+Quick code-only update without the full installer:
+
+```bash
+cd ~/timeTrialRankedBackend
+git pull
+sudo cp -r src /opt/time-trial-ranked/
+sudo chown -R timetrial:timetrial /opt/time-trial-ranked
+sudo systemctl restart time-trial-ranked
+```
+
+Verify after an update:
+
+```bash
+curl http://127.0.0.1:3001/health
+sudo journalctl -u time-trial-ranked -f
+```
+
 ## SQLite data
 
 The database is stored under `data/` and uses WAL mode so polling writes and API reads can run together. Back up the complete `data/` directory to preserve rankings.
