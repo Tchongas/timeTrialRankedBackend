@@ -1,0 +1,23 @@
+[Unit]
+Description=Time Trial Ranked API and MCSR Poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=timetrial
+Group=timetrial
+WorkingDirectory=/opt/time-trial-ranked
+EnvironmentFile=/opt/time-trial-ranked/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/time-trial-ranked/data
+
+[Install]
+WantedBy=multi-user.target
