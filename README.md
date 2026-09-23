@@ -1,18 +1,3 @@
-# Time Trial Ranked Backend
-
-Lightweight Node.js service that polls configured MCSR Ranked users, stores eligible Time Trial matches in a local SQLite database, and serves the ranked website API.
-
-## Requirements
-
-- Ubuntu or Debian VPS
-- Node.js 18 or newer
-- npm
-- A public TCP port
-
-## One-command installation
-
-Upload this complete backend folder to the VPS, enter the uploaded folder, and run:
-
 ```bash
 sudo bash install.sh
 ```
@@ -22,11 +7,9 @@ The installer installs system requirements, checks the Node version, copies the 
 After installation, edit usernames and website access if needed:
 
 ```bash
-sudo nano /opt/time-trial-ranked/.env
+sudo nano /opt/timeTrialRankedBackend/.env
 sudo systemctl restart time-trial-ranked
 ```
-
-If the VPS repository provides Node older than 18, the installer stops without modifying the service and asks you to upgrade Node.
 
 ## Manual installation
 
@@ -127,6 +110,26 @@ Test remotely by replacing the address with the VPS IP:
 
 ```text
 http://VPS_IP:3000/health
+```
+
+## Connecting to the VPS
+
+Oracle Cloud Ubuntu instances use the `ubuntu` user with the SSH key you created/downloaded when the instance was set up:
+
+```bash
+ssh -i /path/to/your-key.pem ubuntu@147.15.12.185
+```
+
+On Windows PowerShell, if the private key is in Downloads:
+
+```powershell
+ssh -i "$env:USERPROFILE\Downloads\your-key.pem" ubuntu@147.15.12.185
+```
+
+If Windows complains about key permissions, fix them once:
+
+```powershell
+icacls "$env:USERPROFILE\Downloads\your-key.pem" /inheritance:r /grant:r "$env:USERNAME:R"
 ```
 
 ## Updating the server
