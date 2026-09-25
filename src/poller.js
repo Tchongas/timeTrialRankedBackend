@@ -1,6 +1,6 @@
 import { matchIdsNeedingCompletions, saveMatchCompletions, saveMatches, savePollError } from "./db.js";
 
-const CATEGORY = "HOW_DID_WE_GET_HERE";
+const CATEGORIES = new Set(["HOW_DID_WE_GET_HERE", "HIGH"]);
 const GAME_MODE = "default";
 const API_BASE = "https://api.mcsrranked.com";
 
@@ -27,7 +27,7 @@ async function fetchJson(url) {
 async function fetchMatches(username) {
     const data = await fetchJson(`${API_BASE}/users/${encodeURIComponent(username)}/matches`);
     if (!Array.isArray(data)) throw new Error("Unexpected MCSR API response");
-    return data.filter(match => match.category === CATEGORY && match.gameMode === GAME_MODE);
+    return data.filter(match => CATEGORIES.has(match.category) && match.gameMode === GAME_MODE);
 }
 
 async function fetchCompletions(matchId) {

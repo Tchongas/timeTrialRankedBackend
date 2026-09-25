@@ -54,6 +54,11 @@ export function initializeDatabase() {
 
     migrateColumn("match_players", "time", "INTEGER");
     migrateColumn("matches", "completions_fetched", "INTEGER NOT NULL DEFAULT 0");
+    migrateColumn("matches", "category", "TEXT");
+    migrateColumn("matches", "game_mode", "TEXT");
+    database.prepare("UPDATE matches SET category = 'HOW_DID_WE_GET_HERE' WHERE category IS NULL").run();
+    database.prepare("UPDATE matches SET game_mode = 'default' WHERE game_mode IS NULL").run();
+    database.exec("CREATE INDEX IF NOT EXISTS matches_category_date_idx ON matches (category, game_mode, match_date DESC)");
 }
 
 function migrateColumn(table, column, definition) {
@@ -81,8 +86,8 @@ const insertUnknownPlayer = database.prepare(`
 const upsertMatch = database.prepare(`
     INSERT INTO matches (
         id, result_uuid, result_time, match_date, seed_type, bastion_type,
-        season, forfeited, decayed, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        season, forfeited, decayed, category, game_mode, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET
         result_uuid = excluded.result_uuid,
         result_time = excluded.result_time,
@@ -92,6 +97,8 @@ const upsertMatch = database.prepare(`
         season = excluded.season,
         forfeited = excluded.forfeited,
         decayed = excluded.decayed,
+        category = excluded.category,
+        game_mode = excluded.game_mode,
         source = excluded.source,
         updated_at = CURRENT_TIMESTAMP
 `);
@@ -139,6 +146,8 @@ const saveMatchesTransaction = database.transaction((username, matches) => {
             match.season ?? null,
             match.forfeited ? 1 : 0,
             match.decayed ? 1 : 0,
+            match.category,
+            match.gameMode,
             JSON.stringify(match)
         );
 
@@ -188,7 +197,7 @@ export function checkDatabase() {
     return database.prepare("SELECT 1 AS ok").get();
 }
 
-export function getPlayersWithRuns() {
+export function getPlayersWithRuns(category, gameMode = "default") {
     return database.prepare(`
         WITH player_runs AS (
             SELECT
@@ -206,14 +215,15 @@ export function getPlayersWithRuns() {
             FROM players p
             JOIN match_players mp ON mp.player_uuid = p.uuid
             JOIN matches m ON m.id = mp.match_id
+            WHERE m.category = ? AND m.game_mode = ?
         )
         SELECT * FROM player_runs
         WHERE run_number <= 100
         ORDER BY nickname ASC, match_date DESC
-    `).all();
+    `).all(category, gameMode);
 }
 
-export function getLeaderboard() {
+export function getLeaderboard(category, gameMode = "default") {
     return database.prepare(`
         WITH eligible AS (
             SELECT
@@ -227,6 +237,8 @@ export function getLeaderboard() {
             JOIN matches m ON m.id = mp.match_id
             WHERE mp.time IS NOT NULL
               AND m.forfeited = 0
+              AND m.category = ?
+              AND m.game_mode = ?
         )
         SELECT
             uuid,
@@ -239,10 +251,10 @@ export function getLeaderboard() {
         WHERE run_number <= 7
         GROUP BY uuid, nickname, country
         ORDER BY average_time DESC
-    `).all();
+    `).all(category, gameMode);
 }
 
-export function getRecentRuns(limit) {
+export function getRecentRuns(limit, category, gameMode = "default") {
     return database.prepare(`
         SELECT
             m.id,
@@ -258,9 +270,10 @@ export function getRecentRuns(limit) {
         FROM matches m
         JOIN match_players mp ON mp.match_id = m.id
         JOIN players p ON p.uuid = mp.player_uuid
+        WHERE m.category = ? AND m.game_mode = ?
         ORDER BY m.match_date DESC
         LIMIT ?
-    `).all(limit);
+    `).all(category, gameMode, limit);
 }
 
 export function closeDatabase() {

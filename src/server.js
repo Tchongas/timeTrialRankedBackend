@@ -13,6 +13,12 @@ import { startPoller } from "./poller.js";
 const app = express();
 const port = Number.parseInt(process.env.PORT, 10) || 3000;
 const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS || "").split(",").map(value => value.trim()).filter(Boolean));
+const categories = new Set(["HOW_DID_WE_GET_HERE", "HIGH"]);
+
+function requestedCategory(request) {
+    const category = String(request.query.category || "HOW_DID_WE_GET_HERE").toUpperCase();
+    return categories.has(category) ? category : null;
+}
 
 app.disable("x-powered-by");
 app.use((request, response, next) => {
@@ -38,7 +44,9 @@ app.get("/health", (request, response, next) => {
 
 app.get("/api/time-trial/players", (request, response, next) => {
     try {
-        const rows = getPlayersWithRuns();
+        const category = requestedCategory(request);
+        if (!category) return response.status(400).json({ status: "error", message: "Unsupported category" });
+        const rows = getPlayersWithRuns(category);
         const players = new Map();
         for (const row of rows) {
             if (!players.has(row.uuid)) {
@@ -69,8 +77,10 @@ app.get("/api/time-trial/players", (request, response, next) => {
 
 app.get("/api/time-trial/leaderboard", (request, response, next) => {
     try {
+        const category = requestedCategory(request);
+        if (!category) return response.status(400).json({ status: "error", message: "Unsupported category" });
         response.setHeader("Cache-Control", "public, max-age=5, stale-while-revalidate=20");
-        response.json({ status: "success", data: getLeaderboard() });
+        response.json({ status: "success", data: getLeaderboard(category) });
     } catch (error) {
         next(error);
     }
@@ -78,8 +88,10 @@ app.get("/api/time-trial/leaderboard", (request, response, next) => {
 
 app.get("/api/time-trial/runs", (request, response, next) => {
     try {
+        const category = requestedCategory(request);
+        if (!category) return response.status(400).json({ status: "error", message: "Unsupported category" });
         const limit = Math.min(100, Math.max(1, Number.parseInt(request.query.limit, 10) || 20));
-        const rows = getRecentRuns(limit).map(row => ({
+        const rows = getRecentRuns(limit, category).map(row => ({
             ...row,
             forfeited: Boolean(row.forfeited),
             decayed: Boolean(row.decayed)
