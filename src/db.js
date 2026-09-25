@@ -236,7 +236,7 @@ export function getLeaderboard() {
             CAST(ROUND(AVG(time)) AS INTEGER) AS average_time,
             MAX(time) AS best_time
         FROM eligible
-        WHERE run_number <= 20
+        WHERE run_number <= 7
         GROUP BY uuid, nickname, country
         ORDER BY average_time DESC
     `).all();
