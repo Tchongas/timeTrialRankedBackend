@@ -4,6 +4,7 @@ import {
     checkDatabase,
     closeDatabase,
     getLeaderboard,
+    getMatchDetails,
     getPlayersWithRuns,
     getRecentRuns,
     initializeDatabase
@@ -70,6 +71,21 @@ app.get("/api/time-trial/players", (request, response, next) => {
 
         response.setHeader("Cache-Control", "public, max-age=5, stale-while-revalidate=20");
         response.json({ status: "success", data: [...players.values()] });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/time-trial/matches/:id", (request, response, next) => {
+    try {
+        const category = requestedCategory(request);
+        if (!category) return response.status(400).json({ status: "error", message: "Unsupported category" });
+        const matchId = Number.parseInt(request.params.id, 10);
+        if (!Number.isSafeInteger(matchId) || matchId <= 0) return response.status(400).json({ status: "error", message: "Invalid match ID" });
+        const details = getMatchDetails(matchId, category);
+        if (!details) return response.status(404).json({ status: "error", message: "Match details are not available yet" });
+        response.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
+        response.json({ status: "success", data: details });
     } catch (error) {
         next(error);
     }

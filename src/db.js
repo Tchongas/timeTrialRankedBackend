@@ -56,6 +56,8 @@ export function initializeDatabase() {
     migrateColumn("matches", "completions_fetched", "INTEGER NOT NULL DEFAULT 0");
     migrateColumn("matches", "category", "TEXT");
     migrateColumn("matches", "game_mode", "TEXT");
+    migrateColumn("matches", "details_fetched", "INTEGER NOT NULL DEFAULT 0");
+    migrateColumn("matches", "details", "TEXT");
     database.prepare("UPDATE matches SET category = 'HOW_DID_WE_GET_HERE' WHERE category IS NULL").run();
     database.prepare("UPDATE matches SET game_mode = 'default' WHERE game_mode IS NULL").run();
     database.exec("CREATE INDEX IF NOT EXISTS matches_category_date_idx ON matches (category, game_mode, match_date DESC)");
@@ -113,8 +115,10 @@ const upsertMatchPlayerTime = database.prepare(`
     ON CONFLICT (match_id, player_uuid) DO UPDATE SET
         time = excluded.time
 `);
-const markCompletionsFetched = database.prepare(`
-    UPDATE matches SET completions_fetched = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+const saveMatchDetails = database.prepare(`
+    UPDATE matches
+    SET completions_fetched = 1, details_fetched = 1, details = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
 `);
 const saveSuccess = database.prepare(`
     INSERT INTO poller_state (username, last_success_at, last_error)
@@ -162,25 +166,30 @@ export function saveMatches(username, matches) {
     saveMatchesTransaction(username, matches);
 }
 
-export function matchIdsNeedingCompletions(matchIds) {
+export function matchIdsNeedingDetails(matchIds) {
     if (!matchIds.length) return [];
     const placeholders = matchIds.map(() => "?").join(",");
     return database.prepare(`
-        SELECT id FROM matches WHERE completions_fetched = 0 AND id IN (${placeholders})
+        SELECT id FROM matches WHERE details_fetched = 0 AND id IN (${placeholders})
     `).all(...matchIds).map(row => row.id);
 }
 
-const saveCompletionsTransaction = database.transaction((matchId, completions) => {
-    for (const completion of completions) {
+const saveDetailsTransaction = database.transaction((matchId, details) => {
+    for (const player of details.players || []) {
+        if (!player.uuid) continue;
+        upsertPlayer.run(player.uuid, player.nickname || player.uuid, player.country || null);
+        insertMatchPlayer.run(matchId, player.uuid);
+    }
+    for (const completion of details.completions || []) {
         if (!completion.uuid || !Number.isFinite(completion.time)) continue;
         insertUnknownPlayer.run(completion.uuid, completion.uuid);
         upsertMatchPlayerTime.run(matchId, completion.uuid, completion.time);
     }
-    markCompletionsFetched.run(matchId);
+    saveMatchDetails.run(JSON.stringify(details), matchId);
 });
 
-export function saveMatchCompletions(matchId, completions) {
-    saveCompletionsTransaction(matchId, Array.isArray(completions) ? completions : []);
+export function saveDetails(matchId, details) {
+    saveDetailsTransaction(matchId, details || {});
 }
 
 export function savePollError(username, error) {
@@ -274,6 +283,14 @@ export function getRecentRuns(limit, category, gameMode = "default") {
         ORDER BY m.match_date DESC
         LIMIT ?
     `).all(category, gameMode, limit);
+}
+
+export function getMatchDetails(matchId, category, gameMode = "default") {
+    const row = database.prepare(`
+        SELECT details FROM matches WHERE id = ? AND category = ? AND game_mode = ?
+    `).get(matchId, category, gameMode);
+    if (!row?.details) return null;
+    return JSON.parse(row.details);
 }
 
 export function closeDatabase() {

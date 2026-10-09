@@ -1,4 +1,4 @@
-import { matchIdsNeedingCompletions, saveMatchCompletions, saveMatches, savePollError } from "./db.js";
+import { matchIdsNeedingDetails, saveDetails, saveMatches, savePollError } from "./db.js";
 
 const CATEGORIES = new Set(["HOW_DID_WE_GET_HERE", "HIGH"]);
 const GAME_MODE = "default";
@@ -30,19 +30,18 @@ async function fetchMatches(username) {
     return data.filter(match => CATEGORIES.has(match.category) && match.gameMode === GAME_MODE);
 }
 
-async function fetchCompletions(matchId) {
-    const data = await fetchJson(`${API_BASE}/matches/${matchId}`);
-    return Array.isArray(data?.completions) ? data.completions : [];
+async function fetchDetails(matchId) {
+    return fetchJson(`${API_BASE}/matches/${matchId}`);
 }
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function fillMissingCompletions(matches) {
-    const pendingIds = matchIdsNeedingCompletions(matches.map(match => match.id));
+async function fillMissingDetails(matches) {
+    const pendingIds = matchIdsNeedingDetails(matches.map(match => match.id));
     for (const matchId of pendingIds) {
-        const completions = await fetchCompletions(matchId);
-        saveMatchCompletions(matchId, completions);
-        await sleep(250); // be polite to the MCSR API between detail requests
+        const details = await fetchDetails(matchId);
+        saveDetails(matchId, details);
+        await sleep(250);
     }
     return pendingIds.length;
 }
@@ -59,8 +58,8 @@ export function startPoller() {
             try {
                 const matches = await fetchMatches(username);
                 await saveMatches(username, matches);
-                const fetched = await fillMissingCompletions(matches);
-                console.log(`[poller] ${username}: stored ${matches.length} eligible matches (${fetched} completions fetched)`);
+                const fetched = await fillMissingDetails(matches);
+                console.log(`[poller] ${username}: stored ${matches.length} eligible matches (${fetched} details fetched)`);
             } catch (error) {
                 console.error(`[poller] ${username}:`, error.message);
                 try {
