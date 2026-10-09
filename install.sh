@@ -60,7 +60,9 @@ node_major() {
 # ---------------------------------------------------------------------------
 log "[1/8] Installing Node.js and build requirements..."
 wait_for_apt
-apt-get update
+if ! apt-get update; then
+    warn "One or more optional apt repositories failed. Continuing with the successfully updated Ubuntu/NodeSource package lists."
+fi
 
 if [[ "$(node_major)" -lt "${NODE_MIN_MAJOR}" ]]; then
     log "Node.js $(node --version 2>/dev/null || echo 'not installed') is too old or missing."
